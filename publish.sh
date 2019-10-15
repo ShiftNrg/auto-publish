@@ -3,10 +3,12 @@
 ################ Shift auto publisher ################
 #
 #	Actions:
-#	1. add (+ pin)
-#	2. publish (if needed)
-#	3. Request at random peers (to create cache)
-#	4. Generate and broadcast a pin transaction
+#    1. Download
+#    2. Encrypt (optionally)
+#    3. Add (+ pin)
+#    4. Publish (if needed)
+#    5. Generate and broadcast a pin transaction
+#    6. Request at random peers (create cache)
 #
 #	To do:
 #	- Collective pin (Wait till Phoenix peers updated,
