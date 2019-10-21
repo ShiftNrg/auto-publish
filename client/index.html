@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<script>
+		/* --------------------------------------------------------------------------
+
+		This script will:
+		- connect to one of the Shift (shiftproject.com) bootstrap nodes, or gateway
+		- if it fails to connect, it will try the next one in row
+		- then load the content using a mutable hash (ipns)
+		- decrypt the content using a shared key
+		- write the decrypted content to the document
+		-------------------------------------------------------------------------- */
+
+		const debug = false;
+		let peers = [];
+		if (location.protocol == 'https:') { // Use gateway
+			peers.push("storage-testnet.shiftproject.com");
+		} else { // Use IP
+			const bootstrap = ["94.176.235.137","89.40.5.14","5.196.14.172","195.181.247.81","45.32.176.167","80.208.231.67"];
+			peers = shuffleArray(bootstrap);
+		}
+		const hash = '/ipns/QmeNgqdLk1SSYGEh5qCdMvpFJ3skNioqpwYXiNtffhdkrG' // encrypted single
+		const encrypt_pass = 'testing';
+
+		function shuffleArray(array) {
+			let counter = array.length;
+
+			while (counter > 0) {
+				let index = Math.floor(Math.random() * counter);
+
+				counter--;
+
+				let temp = array[counter];
+				array[counter] = array[index];
+				array[index] = temp;
+			}
+
+			return array;
+		}
+
+		function requestPeer(peer, arg, crypto=false, cb){
+			let end = arg == 'version' ? arg : 'cat?arg=' + arg;
+			let url = location.protocol + '//' + peer + '/api/v0/' + end;
+			let xhr = new XMLHttpRequest();
+			if (crypto) {
+				xhr.responseType = "arraybuffer";
+				xhr.contentType = "text/plain";
+			}
+			xhr.onreadystatechange = function(data) {
+				if (xhr.readyState === 4) {
+					if (crypto) {
+						return cb(xhr.response);
+					} else {
+						return cb(xhr.responseText);						
+					}
+				}
+			};
+			xhr.open('GET', url);
+			xhr.send();
+		}
+
+		function ab2str(buf) {
+			return new TextDecoder().decode(new Uint8Array(buf));
+		}
+
+		function str2ab(str) {
+			return new TextEncoder("utf-8").encode(str);
+		}
+
+		function decrypt (cypher, vector, pass, cb) {
+			var cypher = new Uint8Array(cypher);
+			var vector = new Uint8Array(vector);
+
+			window.crypto.subtle.digest({name: 'SHA-256'}, str2ab(pass)).then((res) => {
+				window.crypto.subtle.importKey('raw', res, {name: 'AES-CBC'}, false, ['encrypt', 'decrypt']).then((key) => {
+					window.crypto.subtle.decrypt({name: 'AES-CBC', iv: vector}, key, cypher).then((decrypted) => {
+						cb(decrypted);
+					}).catch((err) => {
+						console.error(err);
+						cb(null);
+					})
+				})
+			})
+		}
+
+		let cnt = 0;
+		let len = peers.length;
+		let crypto = encrypt_pass != false;
+		let callVersion = function(version){
+			try {
+				version = JSON.parse(version);
+			} catch(e) {}
+
+			if (version.Version) {
+				if (debug) console.log('Connected to Shift peer ' + peers[cnt] + ' with version: ', version.Version);
+				document.getElementById('message').innerHTML = 'Connected, loading content by hash<br/>[' + hash.split('/')[2] + ']';
+				requestPeer(peers[cnt], hash, crypto, callCat);
+			} else if (cnt < len) {
+				cnt++;
+				if (debug) console.log('Unable to connect to the peer, trying another one..');
+				document.getElementById('message').innerHTML = 'Bootstrapping to node [' + cnt + '/' + len + ']';
+				requestPeer(peers[cnt], 'version', false, callVersion);
+			} else {
+				if (debug) console.log('Unable to connect to any of the bootstrap nodes');
+			}
+		}
+
+		let callCat = function(data){
+			if (data) {
+				cypher = data.slice(16);
+				vector = data.slice(0, 16);
+				decrypt (cypher, vector, encrypt_pass, function(decrypted) {
+					document.write(ab2str(decrypted).toString('utf8'));
+				});
+			}
+		}
+
+		window.onload = function() {
+			document.getElementById('message').innerHTML = 'Bootstrapping to node [' + (cnt+1) + '/' + len + ']';
+			requestPeer(peers[cnt], 'version', false, callVersion);
+		}
+	</script>
+	<style>
+		#message {
+		  color: #333;
+		  font-family: monospace;
+		  font-size: 0.9em;
+		}
+		.sk-folding-container{margin:10% auto auto;background-color:#fff;text-align:center}.sk-folding-cube{margin:0 auto;width:40px;height:40px;top:25px;position:relative;-webkit-transform:rotateZ(45deg);transform:rotateZ(45deg)}.sk-folding-cube .sk-cube{float:left;width:50%;height:50%;position:relative;-webkit-transform:scale(1.1);-ms-transform:scale(1.1);transform:scale(1.1);z-index:2}.sk-folding-cube .sk-cube:before{content:'';position:absolute;top:0;left:0;width:100%;height:100%;background-color:#1cbdc8;-webkit-animation:sk-foldCubeAngle 3.4s infinite linear both;animation:sk-foldCubeAngle 3.4s infinite linear both;-webkit-transform-origin:100% 100%;-ms-transform-origin:100% 100%;transform-origin:100% 100%;box-sizing:border-box;border:0 solid rgba(255,255,255,0)}.sk-folding-cube.bottom{left:0;top:15px}.sk-folding-cube .sk-cube6:before,.sk-folding-cube .sk-cube7:before,.sk-folding-cube .sk-cube8:before{background-color:purple}.sk-folding-cube .sk-cube1:before,.sk-folding-cube .sk-cube8:before{border-width:2 0 0 2}.sk-folding-cube .sk-cube2,.sk-folding-cube .sk-cube6{-webkit-transform:scale(1.1) rotateZ(90deg);transform:scale(1.1) rotateZ(90deg)}.sk-folding-cube .sk-cube2:before{-webkit-animation-delay:.15s;animation-delay:.15s;border-width:2 0 0 2}.sk-folding-cube .sk-cube3,.sk-folding-cube .sk-cube7{-webkit-transform:scale(1.1) rotateZ(270deg);transform:scale(1.1) rotateZ(270deg)}.sk-folding-cube .sk-cube3:before{-webkit-animation-delay:.45s;animation-delay:.45s;border-width:2 0 0 2}.sk-folding-cube .sk-cube4,.sk-folding-cube .sk-cube8{-webkit-transform:scale(1.1) rotateZ(180deg);transform:scale(1.1) rotateZ(180deg)}.sk-folding-cube .sk-cube4:before{-webkit-animation-delay:.3s;animation-delay:.3s;border-width:2 0 0 2}.sk-folding-cube .sk-cube5{z-index:1}.sk-folding-cube .sk-cube5:before{-webkit-animation-delay:.6s;animation-delay:.6s;border-width:0;background-color:#2d556f}.sk-folding-cube .sk-cube6:before{-webkit-animation-delay:.75s;animation-delay:.75s;border-width:2 0 0 2}.sk-folding-cube .sk-cube8:before{-webkit-animation-delay:.9s;animation-delay:.9s}.sk-folding-cube .sk-cube7:before{-webkit-animation-delay:1.05s;animation-delay:1.05s;border-width:2 0 0 2}@-webkit-keyframes sk-foldCubeAngle{0%,10%{-webkit-transform:perspective(140px) rotateX(-180deg);transform:perspective(140px) rotateX(-180deg);opacity:0}25%,75%{-webkit-transform:perspective(140px) rotateX(0);transform:perspective(140px) rotateX(0);opacity:1}100%,90%{-webkit-transform:perspective(140px) rotateY(180deg);transform:perspective(140px) rotateY(180deg);opacity:0}}@keyframes sk-foldCubeAngle{0%,10%{-webkit-transform:perspective(140px) rotateX(-180deg);transform:perspective(140px) rotateX(-180deg);opacity:0}25%,75%{-webkit-transform:perspective(140px) rotateX(0);transform:perspective(140px) rotateX(0);opacity:1}100%,90%{-webkit-transform:perspective(140px) rotateY(180deg);transform:perspective(140px) rotateY(180deg);opacity:0}}
+	</style>
+</head>
+<body>
+<div class="sk-folding-container" id="preload">
+	<a href="https://shiftproject.com" target="_blank" title="GreatFire: Powered by Shift">
+		<div class="sk-folding-cube top">
+			<div class="sk-cube1 sk-cube"></div>
+			<div class="sk-cube2 sk-cube"></div>
+			<div class="sk-cube3 sk-cube"></div>
+			<div class="sk-cube4 sk-cube"></div>
+		</div>
+		<div class="sk-folding-cube bottom">
+			<div class="sk-cube5 sk-cube"></div>
+			<div class="sk-cube6 sk-cube"></div>
+			<div class="sk-cube7 sk-cube"></div>
+			<div class="sk-cube8 sk-cube"></div>   
+		</div>
+	</a>
+	<div id="message" style="margin-top:50px">Loading..</div>
+</div>
+</body>
+</html>
