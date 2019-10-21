@@ -3,12 +3,13 @@
 ################ Shift auto publisher ################
 #
 #	Actions:
-#    1. Download
-#    2. Encrypt (optionally)
-#    3. Add (+ pin)
-#    4. Publish (if needed)
-#    5. Generate and broadcast a pin transaction
-#    6. Request at random peers (create cache)
+#    1. Check status
+#    2. Download
+#    3. Encrypt (optionally)
+#    4. Upload (+ pin)
+#    5. Publish (if needed)
+#    6. Generate and broadcast a pin transaction
+#    7. Request at random peers (create cache)
 #
 #	To do:
 #	- Collective pin (Wait till Phoenix peers updated,
@@ -37,6 +38,13 @@ else
 	output=`~/bin/ipfs key list -l $ipfs_key`
 	array=(`echo $output | cut -d " " -f 1-`)
 	ipns_hash=${array[0]}
+fi
+
+echo "Get page status…"
+status=`curl -s -o /dev/null -I -w "%{http_code}" $url`
+if [ $status != 200 ] ; then
+        echo $(date -u) " ${status} returned, exiting" | sudo tee -a publish.log
+        exit
 fi
 
 echo "Get content from url…"
