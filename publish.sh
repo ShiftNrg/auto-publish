@@ -10,10 +10,7 @@
 #    5. Publish (if needed)
 #    6. Generate and broadcast a pin transaction
 #    7. Request at random peers (create cache)
-#
-#	To do:
-#	- Collective pin (Wait till Phoenix peers updated,
-#	to support the pin queue)
+#    8. Collectively pin at Phoenix
 #
 ######################################################
 
@@ -21,6 +18,7 @@ init=false
 #ipfs_key="single"
 ipfs_key="crypto"
 url="http://startpage.freebrowser.org/zh/single.html"
+phoenix="http://localhost"
 parent=18061445502039238485
 unpin=false
 filename="source.tmp"
@@ -120,5 +118,13 @@ do
 		echo "✘ Request at peer ${random} failed"
 	fi
 done
+
+echo "Send pin request to Phoenix for collective pinning…"
+endpoint="${phoenix}/pin/queue?senderId=${senderid}&hash=${ipfs_hash}"
+response=`curl -X POST -s $endpoint`
+queued=`echo $response | jq '.Success'`
+if [ $queued == true ] ; then
+	echo $(date -u) " Pin successfully queued at Phoenix " | sudo tee -a $DIR/publish.log
+fi
 
 echo "Done"
