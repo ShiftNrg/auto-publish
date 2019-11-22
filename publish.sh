@@ -9,8 +9,9 @@
 #    4. Upload (+ pin)
 #    5. Publish (if needed)
 #    6. Generate and broadcast a pin transaction
-#    7. Request at random peers (create cache)
-#    8. Collectively pin at Phoenix
+#    7. Collectively pin at Phoenix
+#    8. Unpin older pins
+#    9. Request at random peers (create cache)
 #
 ######################################################
 
@@ -19,8 +20,10 @@ init=false
 ipfs_key="crypto"
 url="http://startpage.freebrowser.org/zh/single.html"
 phoenix="http://localhost"
+host="http://localhost:9405"
 parent=18061445502039238485
-unpin=false
+unpin_min=10 # Skip latest pins
+unpin_max=50 # Limit batch size
 filename="source.tmp"
 encrypt_pass="testing"
 
@@ -78,7 +81,7 @@ else
 fi
 
 echo "Generating and broadcasting pin transaction…"
-response=`node $DIR/pin.js $ipfs_hash $bytes $unpin $parent`
+response=`node $DIR/pin.js $ipfs_hash $bytes false $parent`
 success=`echo $response | jq '.success'`
 if [ $success == false ] ; then
 	message=`echo $response | jq '.message'`
@@ -89,6 +92,68 @@ else
 
 	echo $(date -u) " pin transaction ${transactionId} by sender ${senderid} is broadcasted " | sudo tee -a $DIR/publish.log
 fi
+
+echo "Send pin request to Phoenix for collective pinning…"
+endpoint="${phoenix}/pin/queue?senderId=${senderid}&hash=${ipfs_hash}"
+response=`curl -X POST -s $endpoint`
+queued=`echo $response | jq '.Success'`
+if [[ $queued == true ]] ; then
+	echo $(date -u) " Pin successfully queued at Phoenix " | sudo tee -a $DIR/publish.log
+else
+	echo $(date -u) " Pin failed to queue at Phoenix " | sudo tee -a $DIR/publish.log
+fi
+
+echo "Generating and broadcasting unpin transaction(s)…"
+endpoint="${host}/api/pins/parent?id=${parent}"
+response=`curl -X GET -s $endpoint`
+
+_jq() {
+	pin=$(echo ${tx} | base64 --decode)
+	if grep -q ${1} <<< $pin; then
+		echo ${pin} | jq -r ${1}
+	fi
+}
+
+cnt=1
+txs=$(echo "${response}" | jq -R 'fromjson? | .[] | select(.latest==10)')
+all=$(echo "${txs}" | grep -o $parent | wc -l)
+
+for tx in txs | jq -r '@base64'); do
+	if [ $cnt -gt $unpin_max ] ; then
+		break
+	fi
+
+	queue=$(($all - $cnt))
+	if [ $queue -le $unpin_min ] ; then
+		break
+	fi
+
+	# Get pin details
+	pin_hash=$(_jq '.hash')
+	pin_bytes=$(_jq '.bytes')
+	pin_tx=$(_jq '.transactionId')
+
+	if [[ $pin_hash != "" ]] ; then
+		broadcast=`node pin.js $pin_hash $pin_bytes true $parent`
+		success=`echo $broadcast | jq '.success'`
+		if [[ $success != false ]] ; then
+			echo $(date -u) " Transaction $(pin_tx) successfully unpinned " | sudo tee -a $DIR/publish.log
+			senderid=`echo $broadcast | jq '.senderid'`
+
+			endpoint="${host}/pin/rm?senderId=${senderid}&hash=${pin_hash}"
+			response=`curl -X POST -s $endpoint`
+			removed=`echo $response | jq '.Success'`
+
+			if [ $removed == true ] ; then
+				echo $(date -u) " Successfully unpinned at Phoenix " | sudo tee -a $DIR/publish.log
+			else
+				echo $(date -u) " Unpinning at Phoenix failed" | sudo tee -a $DIR/publish.log
+			fi
+		fi
+		sleep 1
+	fi
+	((cnt++))
+done
 
 echo "Get peer list…"
 ip_list=()
@@ -118,13 +183,5 @@ do
 		echo "✘ Request at peer ${random} failed"
 	fi
 done
-
-echo "Send pin request to Phoenix for collective pinning…"
-endpoint="${phoenix}/pin/queue?senderId=${senderid}&hash=${ipfs_hash}"
-response=`curl -X POST -s $endpoint`
-queued=`echo $response | jq '.Success'`
-if [ $queued == true ] ; then
-	echo $(date -u) " Pin successfully queued at Phoenix " | sudo tee -a $DIR/publish.log
-fi
 
 echo "Done"
